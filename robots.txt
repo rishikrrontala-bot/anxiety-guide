@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://rishikrrontala-bot.github.io/anxiety-guide/sitemap.xml
