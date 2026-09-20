@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shade Debt — NASA connectivity diagnostic</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/tokens.css">
+<style>
+  body { padding: 32px 24px 80px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-family: var(--display); font-weight: 400; font-size: 2rem; letter-spacing: -.02em; margin-bottom: 8px; }
+  p.lede { color: var(--mute); max-width: 68ch; margin-bottom: 24px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+  button {
+    font: 500 14px/1 var(--sans); background: var(--ember); color: #1A0F0A;
+    border: 0; border-radius: 4px; padding: 13px 18px; cursor: pointer; min-height: 44px;
+  }
+  button.ghost { background: transparent; color: var(--cream); border: 1px solid var(--ink-3); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  pre {
+    background: var(--ink-2); border: 1px solid var(--ink-3); border-radius: 6px;
+    padding: 16px; font-family: var(--mono); font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word; color: var(--cream);
+    max-height: 70vh; overflow: auto;
+  }
+  .ok { color: #8FB08A; } .bad { color: #C96F5E; } .warn { color: #D9B36A; } .dim { color: var(--faint); }
+</style>
+</head>
+<body>
+<h1>NASA connectivity diagnostic</h1>
+<p class="lede">This page asks NASA for every URL Shade Debt depends on and reports exactly what came
+back — status codes, content types, sizes, and how many colours each palette parsed to. Run it, then
+copy the report. Nothing here is cached or inferred; every line is a real response.</p>
+
+<div class="row">
+  <button id="run">Run diagnostic</button>
+  <button class="ghost" id="caps">Also test capabilities (large, ~6 MB)</button>
+  <button class="ghost" id="copy">Copy report</button>
+</div>
+
+<pre id="out">Ready.</pre>
+
+<script type="module">
+import { LAYERS } from './js/config.js';
+import { buildTileUrl, colorMapUrls, capabilitiesUrl, extractColorMapHref, platformAgnostic, MATRIX_SETS } from './js/gibs.js';
+import { parseColorMapXml, pickPrimaryColorMap } from './js/colormap.js';
+
+const out = document.getElementById('out');
+const lines = [];
+function log(s = '') { lines.push(s); out.textContent = lines.join('\n'); out.scrollTop = out.scrollHeight; }
+
+function describe(res, body) {
+  const ct = res.headers.get('content-type') || '?';
+  const acao = res.headers.get('access-control-allow-origin') || 'none';
+  return `HTTP ${res.status} · ${ct} · ${body == null ? '?' : body.length + ' bytes'} · CORS: ${acao}`;
+}
+
+async function probe(url, { read = false, timeout = 20000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  const t0 = performance.now();
+  try {
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit', signal: ctrl.signal });
+    const body = read ? await res.text() : null;
+    return { res, body, ms: Math.round(performance.now() - t0) };
+  } catch (err) {
+    return { error: String(err && err.message || err), ms: Math.round(performance.now() - t0) };
+  } finally { clearTimeout(timer); }
+}
+
+async function run() {
+  lines.length = 0;
+  log('Shade Debt diagnostic · ' + new Date().toISOString());
+  log('User agent: ' + navigator.userAgent);
+  log('Origin: ' + location.origin);
+  log('='.repeat(72));
+
+  for (const [key, cfg] of Object.entries(LAYERS)) {
+    log('');
+    log(`### ${key} — ${cfg.label}`);
+
+    // 1. Which layer identifier and matrix set actually answer?
+    let resolved = null;
+    outer:
+    for (const layer of cfg.candidates) {
+      for (const ms of MATRIX_SETS) {
+        const url = buildTileUrl({ layer, matrixSet: ms, time: null, z: 0, y: 0, x: 0, ext: cfg.ext });
+        const r = await probe(url);
+        if (r.error) { log(`  tile  ${layer} @ ${ms}  ERROR ${r.error}`); continue; }
+        if (r.res.ok) {
+          log(`  tile  ${layer} @ ${ms}  ${describe(r.res)}  (${r.ms}ms)  <-- using this`);
+          resolved = layer;
+          break outer;
+        }
+      }
+      log(`  tile  ${layer}  no matrix set answered`);
+    }
+    if (!resolved) { log('  RESULT: no imagery for this layer'); continue; }
+
+    // 2. Every colormap URL we would try, and what each one actually returns.
+    log(`  platform-agnostic id: ${platformAgnostic(resolved)}`);
+    let found = false;
+    for (const url of colorMapUrls(resolved)) {
+      const r = await probe(url, { read: true });
+      const short = url.replace('https://gibs.earthdata.nasa.gov/colormaps/', '');
+      if (r.error) { log(`  cmap  ${short}  ERROR ${r.error}`); continue; }
+      if (!r.res.ok) { log(`  cmap  ${short}  ${describe(r.res, r.body)}`); continue; }
+
+      const maps = parseColorMapXml(r.body);
+      const primary = pickPrimaryColorMap(maps);
+      const n = primary ? primary.entries.length : 0;
+      log(`  cmap  ${short}  ${describe(r.res, r.body)}`);
+      log(`        parsed: ${maps.length} ColorMap block(s), primary has ${n} entries, units "${primary ? primary.units : '-'}"`);
+      if (n === 0) {
+        log('        FIRST 400 CHARS OF BODY (parser could not read it):');
+        log('        ' + r.body.slice(0, 400).replace(/\n/g, '\n        '));
+      } else {
+        found = true;
+        log(`        sample entry: rgb(${primary.entries[0].r},${primary.entries[0].g},${primary.entries[0].b}) -> ${primary.entries[0].value}`);
+        break;
+      }
+    }
+    log(`  RESULT: ${found ? 'palette OK' : 'NO PALETTE from any guessed URL'}`);
+  }
+
+  log('');
+  log('='.repeat(72));
+  log('Guessed URLs exhausted. If any layer says NO PALETTE, press');
+  log('"Also test capabilities" — that reads the authoritative filename from NASA.');
+}
+
+async function runCaps() {
+  log('');
+  log('### capabilities document');
+  const url = capabilitiesUrl();
+  log('  ' + url);
+  const r = await probe(url, { read: true, timeout: 120000 });
+  if (r.error) { log(`  ERROR ${r.error} after ${r.ms}ms`); return; }
+  log(`  ${describe(r.res, r.body)}  (${r.ms}ms)`);
+  if (!r.res.ok) return;
+
+  for (const [key, cfg] of Object.entries(LAYERS)) {
+    for (const layer of cfg.candidates) {
+      const href = extractColorMapHref(r.body, layer);
+      const present = r.body.includes(layer);
+      log(`  ${layer}: ${present ? 'listed' : 'NOT LISTED'} · colormap href: ${href || 'none found'}`);
+      if (href) {
+        const c = await probe(href, { read: true });
+        if (c.error) { log(`      fetch ERROR ${c.error}`); }
+        else {
+          const primary = pickPrimaryColorMap(parseColorMapXml(c.body));
+          log(`      ${describe(c.res, c.body)} · ${primary ? primary.entries.length : 0} entries`);
+        }
+      }
+      if (present) break;
+    }
+  }
+}
+
+document.getElementById('run').addEventListener('click', async (e) => {
+  e.target.disabled = true; e.target.textContent = 'Running…';
+  try { await run(); } finally { e.target.disabled = false; e.target.textContent = 'Run diagnostic'; }
+});
+document.getElementById('caps').addEventListener('click', async (e) => {
+  e.target.disabled = true; e.target.textContent = 'Downloading…';
+  try { await runCaps(); } catch (err) { log('  FAILED: ' + err.message); }
+  finally { e.target.disabled = false; e.target.textContent = 'Also test capabilities (large, ~6 MB)'; }
+});
+document.getElementById('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(out.textContent); document.getElementById('copy').textContent = 'Copied'; }
+  catch { /* select manually */ }
+  setTimeout(() => { document.getElementById('copy').textContent = 'Copy report'; }, 1600);
+});
+</script>
+</body>
+</html>
