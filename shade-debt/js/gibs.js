@@ -126,6 +126,88 @@ function writeCache(entry) {
   } catch { /* private browsing; the guesses still work */ }
 }
 
+/* ------------------------------------------------------------------------
+ * Colormap directory index.
+ *
+ * GIBS publishes its colormaps as a browsable directory. Reading that index is
+ * the only reliable way to learn a layer's palette filename, because the two
+ * do not match: NASA's own documentation pairs the AMSRU2_* layers with a
+ * colormap called AMSR_Surface_Precipitation.xml. Palettes are named after the
+ * product, and are shared across the satellites carrying it.
+ *
+ * The index is a few hundred kilobytes once, against six megabytes for the
+ * capabilities document, and the resolved filename is cached afterwards.
+ * ---------------------------------------------------------------------- */
+
+/** Every .xml filename in an Apache/nginx style directory listing. */
+export function parseDirectoryIndex(html) {
+  if (!html) return [];
+  const names = new Set();
+  for (const m of String(html).matchAll(/href\s*=\s*["']([^"']+?\.xml)["']/gi)) {
+    const name = m[1].split('/').pop();
+    if (name) names.add(decodeURIComponent(name));
+  }
+  return [...names];
+}
+
+function tokensOf(name) {
+  return String(name).replace(/\.xml$/i, '').split(/[_\-.]+/).filter(Boolean).map((t) => t.toLowerCase());
+}
+
+/**
+ * Choose the colormap filename that best describes a layer.
+ *
+ * A candidate qualifies when every one of its tokens also appears in the
+ * layer's name - so MODIS_Land_Surface_Temp_Day matches
+ * MODIS_Terra_Land_Surface_Temp_Day, while MODIS_Land_Surface_Temp_Night does
+ * not, because "night" is not in the layer. Among qualifying candidates the
+ * most specific one wins, which keeps a shorter prefix from stealing the
+ * match from a longer, more exact name.
+ */
+export function bestColorMapMatch(layer, filenames) {
+  const layerTokens = new Set(tokensOf(layer));
+  if (!layerTokens.size || !filenames || !filenames.length) return null;
+
+  let best = null, bestScore = -1;
+  for (const file of filenames) {
+    const tokens = tokensOf(file);
+    if (!tokens.length) continue;
+    if (tokens[0] !== tokensOf(layer)[0]) continue;      // same product family
+    if (!tokens.every((t) => layerTokens.has(t))) continue; // no foreign tokens
+    const score = tokens.length;
+    if (score > bestScore || (score === bestScore && file.length < best.length)) {
+      best = file; bestScore = score;
+    }
+  }
+  if (best) return best;
+
+  // Nothing is a clean subset; fall back to the strongest overlap, but only
+  // when it is decisive, so a near-miss never silently decodes wrong values.
+  let fallback = null, fallbackScore = 0;
+  for (const file of filenames) {
+    const tokens = tokensOf(file);
+    if (!tokens.length || tokens[0] !== tokensOf(layer)[0]) continue;
+    const shared = tokens.filter((t) => layerTokens.has(t)).length;
+    const ratio = shared / Math.max(tokens.length, layerTokens.size);
+    if (ratio > fallbackScore) { fallbackScore = ratio; fallback = file; }
+  }
+  return fallbackScore >= 0.7 ? fallback : null;
+}
+
+const indexPromises = new Map();
+function directoryIndex(base) {
+  if (!indexPromises.has(base)) {
+    indexPromises.set(base, fetchWithTimeout(`${base}/`, { timeout: 30000 })
+      .then((res) => {
+        if (!res.ok) throw new Error(`index ${res.status}`);
+        return res.text();
+      })
+      .then(parseDirectoryIndex)
+      .catch((err) => { indexPromises.delete(base); throw err; }));
+  }
+  return indexPromises.get(base);
+}
+
 let capabilitiesPromise = null;
 function capabilitiesText() {
   if (!capabilitiesPromise) {
@@ -206,6 +288,19 @@ export async function fetchColorMapXml(layer) {
       return hit;
     } catch (err) {
       errors.push(`${url} -> ${String(err && err.message || err)}`);
+    }
+  }
+
+  // The authoritative, self-healing route: ask the directory what exists.
+  for (const base of COLORMAP_BASES) {
+    try {
+      const match = bestColorMapMatch(layer, await directoryIndex(base));
+      if (!match) { errors.push(`${base}/ -> no filename matched ${layer}`); continue; }
+      const hit = await tryColorMap(`${base}/${match}`);
+      writeCache({ [layer]: hit.url });
+      return hit;
+    } catch (err) {
+      errors.push(`${base}/ -> ${String(err && err.message || err)}`);
     }
   }
 

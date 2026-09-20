@@ -98,3 +98,61 @@ test('NDVI palettes pass through untouched', () => {
   assert.ok(Math.abs(lut.lookup(0, 200, 0, 255) - 0.85) < 1e-9);
   assert.equal(toCelsius(0.85, ''), 0.85);
 });
+
+/* ---------------------------------------------------------------------------
+ * Real GIBS documents.
+ *
+ * Everything above tests the parser against fixtures written by hand, which
+ * proves only that it matches its own assumptions. These are unmodified files
+ * published by NASA, so they catch the failure the hand-written ones cannot:
+ * the published format differing from what the parser expects.
+ * ------------------------------------------------------------------------ */
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixture = (name) => readFileSync(join(here, 'fixtures', name), 'utf8');
+
+test('a real NASA continuous palette parses, with its units', () => {
+  const primary = pickPrimaryColorMap(parseColorMapXml(fixture('GHRSST_Sea_Surface_Temperature_Anomalies.xml')));
+  assert.ok(primary, 'a palette was found');
+  assert.ok(primary.entries.length > 40, `expected a full ramp, got ${primary.entries.length}`);
+  assert.equal(primary.units, '°C', 'units come from the document, not a guess');
+});
+
+test('every colour in a real NASA palette round-trips to its own value', () => {
+  const primary = pickPrimaryColorMap(parseColorMapXml(fixture('GHRSST_Sea_Surface_Temperature_Anomalies.xml')));
+  const lut = buildLookup(primary);
+  for (const entry of primary.entries) {
+    assert.equal(lut.lookup(entry.r, entry.g, entry.b, 255), entry.value,
+      `rgb(${entry.r},${entry.g},${entry.b}) did not decode back to ${entry.value}`);
+  }
+});
+
+test('a real palette produces physically sensible values', () => {
+  const primary = pickPrimaryColorMap(parseColorMapXml(fixture('GHRSST_Sea_Surface_Temperature_Anomalies.xml')));
+  const values = primary.entries.map((e) => e.value);
+  const min = Math.min(...values), max = Math.max(...values);
+  assert.ok(min > -60 && max < 60, `anomalies in degrees C should be a small range, got ${min}..${max}`);
+  assert.ok(values.every((v) => Number.isFinite(v)));
+});
+
+test('a real multi-block document yields the data palette, not the no-data stub', () => {
+  const maps = parseColorMapXml(fixture('ColorMap_v1.2_Sample.xml'));
+  assert.ok(maps.length > 1, 'the document really does carry several blocks');
+  const primary = pickPrimaryColorMap(maps);
+  assert.ok(primary.entries.length > 0);
+  assert.ok(maps.some((m) => m.entries.length < primary.entries.length), 'a smaller block was passed over');
+});
+
+test('no-data entries in a real document decode to nothing', () => {
+  const primary = pickPrimaryColorMap(parseColorMapXml(fixture('GHRSST_Sea_Surface_Temperature_Anomalies.xml')));
+  const lut = buildLookup(primary);
+  assert.ok(primary.transparentKeys.size > 0, 'the document marks some entries as no-data');
+  for (const key of primary.transparentKeys) {
+    const r = (key >> 16) & 255, g = (key >> 8) & 255, b = key & 255;
+    assert.equal(lut.lookup(r, g, b, 255), null, 'a no-data colour must never become a measurement');
+  }
+});
