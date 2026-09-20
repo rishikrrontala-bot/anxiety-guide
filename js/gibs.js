@@ -194,6 +194,53 @@ export function bestColorMapMatch(layer, filenames) {
   return fallbackScore >= 0.7 ? fallback : null;
 }
 
+/**
+ * Plausible palette filenames for a layer, most specific first.
+ *
+ * The directory index is exact, but it is an HTML listing and a static
+ * listing need not carry CORS headers even when the XML files beside it do.
+ * This route asks only for colormap documents themselves, which are known to
+ * be reachable cross-origin, by walking the layer name down from most to
+ * least specific: the satellite comes off first, then trailing qualifiers,
+ * then the leading product token.
+ *
+ * Only trailing tokens are dropped and none are ever substituted, so a Day
+ * layer can never arrive at a Night palette.
+ */
+export function colorMapNameCandidates(layer) {
+  const raw = String(layer || '').trim();
+  if (!raw) return [];
+  const full = raw.split('_').filter(Boolean);
+  if (!full.length) return [];
+
+  const stripped = platformAgnostic(raw).split('_').filter(Boolean);
+  const withoutProduct = stripped.length > 2 ? stripped.slice(1) : null;
+  // Two-token stubs like "MODIS_Terra" name no product and could collide with
+  // an unrelated palette, so candidates never shrink below three tokens
+  // (or the layer's own length, whichever is smaller).
+  const floor = Math.min(3, full.length);
+
+  const seen = new Set();
+  const scored = [];
+  const variants = [stripped, full, withoutProduct].filter(Boolean);
+  variants.forEach((tokens, rank) => {
+    for (let end = tokens.length; end >= floor; end--) {
+      const name = tokens.slice(0, end).join('_');
+      if (seen.has(name)) continue;
+      seen.add(name);
+      scored.push({ name, dropped: tokens.length - end, rank });
+    }
+  });
+
+  // Exact spelling first, then fewest tokens dropped, then the more likely
+  // variant: satellite removed, then verbatim, then product token removed.
+  scored.sort((a, b) => (a.dropped - b.dropped) || (a.rank - b.rank));
+  // The tail is increasingly unlikely and every entry costs a request, so the
+  // list is bounded; the correct answer is near the top or it is not here.
+  const exact = raw;
+  return [exact, ...scored.map((c) => c.name).filter((n) => n !== exact)].slice(0, 8);
+}
+
 const indexPromises = new Map();
 function directoryIndex(base) {
   if (!indexPromises.has(base)) {
@@ -288,6 +335,25 @@ export async function fetchColorMapXml(layer) {
       return hit;
     } catch (err) {
       errors.push(`${url} -> ${String(err && err.message || err)}`);
+    }
+  }
+
+  // Walk the name down, asking only for colormap documents, which are known
+  // to be reachable cross-origin. The newest version directory is tried for
+  // every candidate; older ones only for the two most specific names, to keep
+  // the request count bounded.
+  const names = colorMapNameCandidates(layer).slice(2); // first two already tried above
+  for (const name of names) {
+    const bases = names.indexOf(name) < 2 ? COLORMAP_BASES : COLORMAP_BASES.slice(0, 1);
+    for (const base of bases) {
+      const url = `${base}/${name}.xml`;
+      try {
+        const hit = await tryColorMap(url);
+        writeCache({ [layer]: hit.url });
+        return hit;
+      } catch (err) {
+        errors.push(`${url} -> ${String(err && err.message || err)}`);
+      }
     }
   }
 
