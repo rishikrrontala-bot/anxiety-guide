@@ -206,6 +206,17 @@ function initPinnedMeasures(globe) {
       onEnter() { globe.setPaused(true); },
       onLeaveBack() { globe.setPaused(false); },
     });
+
+    // Without this the globe is cut in half by the top edge of the paper
+    // section, which reads as a rendering fault rather than a transition.
+    const stage = document.getElementById('globe-stage');
+    if (stage) {
+      stage.style.transition = 'none';
+      gsap.to(stage, {
+        opacity: 0, ease: 'none',
+        scrollTrigger: { trigger: section, start: 'bottom 85%', end: 'bottom 45%', scrub: true },
+      });
+    }
   }
 }
 
@@ -228,7 +239,7 @@ async function initGlobe() {
 
 /* ------------------------------------------------ live decoded NASA tiles */
 
-const TILE_DEMO = { lat: 34.05, lon: -118.24, zoom: 6 }; // Los Angeles basin
+const TILE_DEMO = { lat: 34.05, lon: -118.24, zoom: 7 }; // Los Angeles basin
 
 function tileIndexFor(lat, lon, zoom) {
   const px = lngLatToWorldPx(lon, lat, zoom);
@@ -243,7 +254,14 @@ function drawToCanvas(canvasId, bitmap) {
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 }
 
-function decodeMedian(bitmap, lut, transform) {
+/**
+ * Decode the median of a tile's central region.
+ *
+ * A whole tile at this zoom spans a couple of hundred kilometres, so a median
+ * over all of it is dominated by ocean and desert and reports a number that
+ * says nothing about the city the tile is centred on.
+ */
+function decodeMedian(bitmap, lut, transform, centreFraction = 0.35) {
   const canvas = document.createElement('canvas');
   canvas.width = bitmap.width; canvas.height = bitmap.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -251,8 +269,11 @@ function decodeMedian(bitmap, lut, transform) {
   const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const values = [];
   const step = Math.max(1, Math.floor(width / 48));
-  for (let y = 0; y < height; y += step) {
-    for (let x = 0; x < width; x += step) {
+  const inset = (1 - centreFraction) / 2;
+  const xMin = Math.floor(width * inset), xMax = Math.ceil(width * (1 - inset));
+  const yMin = Math.floor(height * inset), yMax = Math.ceil(height * (1 - inset));
+  for (let y = yMin; y < yMax; y += step) {
+    for (let x = xMin; x < xMax; x += step) {
       const i = (y * width + x) * 4;
       const v = lut.lookup(data[i], data[i + 1], data[i + 2], data[i + 3]);
       if (v == null) continue;
@@ -266,11 +287,12 @@ function decodeMedian(bitmap, lut, transform) {
 async function initTiles() {
   const caption = document.getElementById('tiles-caption');
   const specs = [
-    { key: 'lstDay', canvas: 'tile-lst', value: 'val-lst', unit: '°C', dp: 1, temp: true },
-    { key: 'ndvi', canvas: 'tile-ndvi', value: 'val-ndvi', unit: 'NDVI', dp: 2, temp: false },
-    { key: 'population', canvas: 'tile-pop', value: 'val-pop', unit: '/km²', dp: 0, temp: false },
+    { key: 'lstDay', label: 'Surface temperature', canvas: 'tile-lst', value: 'val-lst', unit: '°C', dp: 1, temp: true },
+    { key: 'ndvi', label: 'Vegetation', canvas: 'tile-ndvi', value: 'val-ndvi', unit: 'NDVI', dp: 2, temp: false },
+    { key: 'population', label: 'Population', canvas: 'tile-pop', value: 'val-pop', unit: '/km²', dp: 0, temp: false },
   ];
   let anySucceeded = false;
+  const failed = [];
 
   await Promise.all(specs.map(async (spec) => {
     const el = document.getElementById(spec.value);
@@ -301,6 +323,7 @@ async function initTiles() {
       anySucceeded = true;
     } catch {
       if (el) { el.dataset.state = 'pending'; el.textContent = 'unavailable'; }
+      failed.push(spec.label);
     }
   }));
 
