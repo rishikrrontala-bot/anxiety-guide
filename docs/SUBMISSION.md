@@ -14,7 +14,7 @@ built *before* the hackathon and what was built *during* it. Put this in the Dev
 description verbatim:
 
 > **Prior work declaration.** Everything in the `shade-debt/` directory — the entire
-> application, the model, and the test suite — was written during NextStep Hacks 2026.
+> application, the site, the model, and the test suite — was written during NextStep Hacks 2026.
 > Nothing was carried over from an earlier project. The repository it lives in also
 > hosts an unrelated pre-existing static site (a teen anxiety guide) at the repository
 > root; that site predates the hackathon, is not part of this submission, and shares no
@@ -94,6 +94,37 @@ source instead of breaking the page.
 Tree counts come from fractional vegetation cover after Carlson & Ripley (1997), not
 from a guess.
 
+### Design and build
+
+The interface is a deliberate study of type-led motion — the temperament of
+studios like Unseen Studio, where restraint reads as premium — applied to a
+measurement tool rather than a portfolio.
+
+The rules were written down first, in `DESIGN.md`, and everything answers to
+them: two typefaces, one accent under 80% saturation, an 8px spacing scale, named
+easing curves, and **exactly two page-wide motion behaviours** — a masked
+per-line text reveal and a single pinned section. No parallax, no marquee, no
+custom cursor. `transform` and `opacity` only. `prefers-reduced-motion` ships
+with each animation rather than after it.
+
+The 3D has one named role: a hero object. It is an Earth globe whose texture is
+**not shipped with the page** — it is stitched at runtime from NASA Blue Marble
+equirectangular tiles, using the same probe-then-decode machinery as the
+analysis, with a warm atmospheric rim shader written to stay on palette. Scroll
+drives its rotation and a camera dolly. It ships three fallbacks: reduced motion,
+low-power device, and no-WebGL-or-no-imagery, which drops to a type-only hero. It
+will never render a fabricated sphere in place of real data.
+
+Two elements of the page are not illustrations of the method — they *are* the
+method, running. The tiles in "How a temperature is recovered from a picture" are
+live NASA tiles fetched and decoded while you read; if the network blocks them
+the panels stay empty and say so. And the scatter in "Calibrated here" calls the
+same tested `theilSen` and `olsRegression` functions the analysis uses: add
+outliers and watch the least-squares line break while the robust line holds.
+
+Every image on the site is real Earth observation data. No stock photography, no
+gradients standing in for photographs.
+
 ### Challenges we ran into
 
 - **Getting physical values out of rendered imagery.** This was the whole problem.
@@ -109,6 +140,16 @@ from a guess.
 - **The correct URL shape.** GIBS rejects a TIME segment on layers that have no time
   dimension, which is why gridded population kept failing until the tile URL builder was
   taught to omit it. There is a regression test for exactly that now.
+- **Verifying 3D you cannot see.** The globe needs both WebGL and NASA imagery, so it
+  is the hardest part of the build to trust. We added a harness
+  (`test/globe-harness.html`) that mounts the scene against a locally generated
+  texture, which let us confirm the shader compiles and the sphere renders with no
+  network at all. It immediately caught a real bug: the renderer was delegating canvas
+  sizing to the stylesheet, so the canvas overflowed anywhere that CSS was absent.
+- **A units trap in CSS.** `max-width: 16ch` on a container resolves against the
+  *container's* 16px font, not the 100px display type inside it — so three headline
+  columns were roughly 180px wide while their text rendered far larger. Screenshot
+  testing at two viewports is what surfaced it.
 
 ### Accomplishments we're proud of
 
@@ -117,7 +158,11 @@ from a guess.
 - A metric with honest units — degree-persons — and no arbitrary weights to defend.
 - A model that is **calibrated per city from that city's own data** rather than applying
   one borrowed coefficient everywhere.
-- **89 passing tests** covering the whole analytical core.
+- **89 passing tests** covering the whole analytical core, plus a WebGL harness that
+  makes the 3D verifiable offline.
+- An interface audited for WCAG 2.2 AA: contrast checked on every text node at two
+  viewports, 24px minimum target sizes, visible focus on every tab stop, sane heading
+  order, and reduced-motion paths throughout.
 - A tool that self-validates against an independent NASA record and reports the
   disagreement instead of hiding it.
 
@@ -125,6 +170,11 @@ from a guess.
 
 - How WMTS actually works: tile matrix sets, the REST path layout, and why an omitted
   TIME segment is the safest thing to probe a layer with.
+- How to write a line-splitting text reveal that survives emphasis spanning a line
+  break, and why `ch` units mean something different on a container than on the
+  heading inside it.
+- That tree-shaking a 2 MB library down to the classes you actually use is the
+  difference between a 3D site that loads and one that does not.
 - That satellite science products are distributed as *pictures* far more often than as
   arrays, and that the metadata to reverse that is public if you go looking.
 - Why robust statistics exist. We started with ordinary least squares, watched a handful
@@ -145,12 +195,14 @@ from a guess.
 
 ### Built with
 
-`javascript` · `html5` · `css3` · `leaflet` · `nasa-gibs` · `nasa-power` · `nasa-sedac` ·
-`modis` · `wmts` · `remote-sensing` · `geojson` · `canvas` · `node-test`
+`javascript` · `html5` · `css3` · `three.js` · `webgl` · `glsl` · `gsap` · `scrolltrigger` ·
+`lenis` · `leaflet` · `nasa-gibs` · `nasa-power` · `nasa-sedac` · `modis` · `wmts` ·
+`remote-sensing` · `geojson` · `canvas` · `node-test`
 
 ### Links
 
-- **Live app:** https://rishikrrontala-bot.github.io/anxiety-guide/shade-debt/
+- **Live site:** https://rishikrrontala-bot.github.io/anxiety-guide/shade-debt/
+- **The tool directly:** https://rishikrrontala-bot.github.io/anxiety-guide/shade-debt/app/
 - **Repository:** https://github.com/rishikrrontala-bot/anxiety-guide/tree/main/shade-debt
 
 ---
@@ -166,7 +218,15 @@ the permalink — then start the recording from that URL so the demo cannot fail
 
 ---
 
-**0:00 – 0:20 — The hook. Screen: the app, already on your city, cells coloured.**
+**0:00 – 0:18 — Open on the site, not the tool.** Let the globe turn for two seconds
+before you speak. Scroll once, slowly, so a headline reveals on camera.
+
+> "This is Shade Debt. That globe is not an illustration — the texture is NASA
+> imagery, stitched in the browser while the page loads."
+
+Then click *Measure a city* so the page transition plays into the tool.
+
+**0:18 – 0:38 — The hook. Screen: the app, already on your city, cells coloured.**
 
 > "Inside this one city, the ground temperature varies by [X] degrees. That is not
 > weather — every one of these red cells is within a few kilometres of a blue one. The
@@ -250,6 +310,10 @@ the permalink — then start the recording from that URL so the demo cannot fail
 - [ ] Repository link is public
 - [ ] **Prior work declaration pasted into the Devpost description**
 - [ ] `npm test` passing, and the count in the writeup matches reality
-- [ ] Screenshots attached: the map, the calibration scatter, the generated letter
+- [ ] Screenshots attached: the hero with the globe, the map, the calibration scatter,
+      the generated letter
+- [ ] Confirm the globe actually renders on your machine — if NASA's Blue Marble tiles
+      are blocked, the hero correctly falls back to type only, which is worth knowing
+      before you record
 - [ ] Try a second, geographically different city (one in the southern hemisphere) so
       the seasonal logic is exercised on camera if you re-record

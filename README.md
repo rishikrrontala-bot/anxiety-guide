@@ -139,6 +139,30 @@ established street tree.
 
 ---
 
+## The site
+
+The project has two surfaces:
+
+- **`/shade-debt/`** — a scroll-led explanation of the method, with a WebGL globe
+  textured from live NASA Blue Marble imagery, real NASA tiles decoded on the page
+  as you read about how decoding works, and an interactive demonstration of why the
+  analysis uses a robust estimator.
+- **`/shade-debt/app/`** — the tool itself.
+
+The visual contract lives in [`DESIGN.md`](DESIGN.md). Two page-wide motion
+behaviours and no more: a masked per-line text reveal, and one pinned section.
+`prefers-reduced-motion` ships with each of them rather than after.
+
+**No third-party CDN requests.** Three.js, GSAP, Lenis, Leaflet and both font
+faces are vendored into `vendor/` and `fonts/`. The Three.js build is tree-shaken
+to only the classes the globe uses — 528 KB minified, about 132 KB over the wire —
+and lazy-mounted after first paint.
+
+The globe ships three fallbacks: reduced motion stops the rotation and the dolly,
+a low-power device drops the star field and the camera move, and no WebGL (or
+unreachable NASA imagery) falls back to a type-only hero. It will never render a
+fabricated sphere.
+
 ## Running it
 
 It is a static page. No build step, no dependencies to install.
@@ -165,27 +189,43 @@ npm test          # node --test test/*.test.js
 
 ```
 shade-debt/
-├── index.html          app shell
-├── styles.css          interface styles, dark and light
-└── js/
-    ├── app.js          orchestration, rendering, exports
-    ├── config.js       layer candidates and analysis defaults
-    ├── gibs.js         GIBS client: probing, tile URLs, colormap fetch
-    ├── colormap.js     palette parsing and RGB → value inversion   (pure)
-    ├── raster.js       tile stitching, pixel sampling, compositing
-    ├── geo.js          Web Mercator projection and grid maths       (pure)
-    ├── dates.js        hemisphere-aware observation date selection  (pure)
-    ├── stats.js        median, percentile, OLS, Theil–Sen           (pure)
-    ├── metric.js       the Shade Debt model                         (pure)
-    ├── power.js        NASA POWER client and parsers                (pure parsers)
-    ├── services.js     place search and reverse lookup
-    └── exporters.js    GeoJSON, CSV, letter                         (pure)
+├── index.html              the scroll-led site
+├── app/index.html          the tool
+├── favicon.svg
+├── DESIGN.md               the visual contract
+├── ATTRIBUTION.md          imagery, typefaces, libraries, licences
+├── css/
+│   ├── tokens.css          palette, type scale, spacing, easing, font faces
+│   ├── site.css            the site
+│   └── app.css             the tool
+├── fonts/                  Instrument Serif + Schibsted Grotesk (woff2, self-hosted)
+├── vendor/                 Three.js, GSAP, ScrollTrigger, Lenis, Leaflet
+├── js/
+│   ├── site.js             motion, live tile decoding, the estimator demo
+│   ├── globe.js            the WebGL globe and its NASA texture
+│   ├── app.js              tool orchestration, rendering, exports
+│   ├── config.js           layer candidates and analysis defaults
+│   ├── gibs.js             GIBS client: probing, tile URLs, colormap fetch
+│   ├── colormap.js         palette parsing and RGB → value inversion   (pure)
+│   ├── raster.js           tile stitching, pixel sampling, compositing
+│   ├── geo.js              Web Mercator projection and grid maths       (pure)
+│   ├── dates.js            hemisphere-aware observation date selection  (pure)
+│   ├── stats.js            median, percentile, OLS, Theil–Sen           (pure)
+│   ├── metric.js           the Shade Debt model                         (pure)
+│   ├── power.js            NASA POWER client and parsers                (pure parsers)
+│   ├── services.js         place search and reverse lookup
+│   └── exporters.js        GeoJSON, CSV, letter                         (pure)
+└── test/
+    ├── *.test.js           89 tests over the analytical core
+    └── globe-harness.html  mounts the globe against a synthetic texture,
+                            so the WebGL path is verifiable without a network
 ```
 
 ## Credits
 
 NASA GIBS, NASA SEDAC, and NASA POWER for open data with no key and no gate.
-Basemap © OpenStreetMap contributors, © CARTO. Mapping by Leaflet.
+Basemap © OpenStreetMap contributors, © CARTO. Full credits, licences and
+typeface attribution in [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 Carlson, T.N. & Ripley, D.A. (1997). *On the relation between NDVI, fractional
 vegetation cover, and leaf area index.* Remote Sensing of Environment, 62(3), 241–252.

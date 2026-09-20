@@ -94,8 +94,7 @@ function initMap() {
     .setView([39.5, -98.35], 4);
   canvasRenderer = L.canvas({ padding: 0.3 });
 
-  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light_all' : 'dark_all';
-  baseDark = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark}/{z}/{x}/{y}{r}.png`, {
+  baseDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO | Analysis: NASA GIBS, SEDAC, POWER',
     subdomains: 'abcd',
     maxZoom: 19,
@@ -146,8 +145,10 @@ function toggleLayerMode() {
 
 /* ------------------------------------------------------------------ colour */
 
-const DEBT_STOPS = [[0, '#fde68a'], [0.33, '#fbbf24'], [0.66, '#f97316'], [1, '#b91c1c']];
-const NIGHT_STOPS = [[0, '#1e3a8a'], [0.4, '#7c3aed'], [0.7, '#db2777'], [1, '#f43f5e']];
+/* Sequential ramps from DESIGN.md. These encode measured values rather than
+   brand, which is why they are allowed more than the single page accent. */
+const DEBT_STOPS = [[0, '#F0E3D0'], [0.34, '#E8BE8E'], [0.68, '#D77A5A'], [1, '#8E3B2A']];
+const NIGHT_STOPS = [[0, '#2B3A55'], [0.4, '#4E5E86'], [0.72, '#8A7FA8'], [1, '#C99BA8']];
 
 function hexToRgb(h) {
   const n = parseInt(h.slice(1), 16);
@@ -173,7 +174,25 @@ function rampCss(stops) {
 
 /* ------------------------------------------------------------------- boot */
 
+/** Lift the curtain if we arrived through the site's page transition. */
+function playArrival() {
+  const wipe = document.getElementById('wipe');
+  const word = wipe && wipe.querySelector('.wipe__word');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!wipe) return;
+  const staged = sessionStorage.getItem('sd-transition') === '1';
+  sessionStorage.removeItem('sd-transition');
+  if (!staged || !window.gsap || reduced) { wipe.remove(); return; }
+  const gsap = window.gsap;
+  gsap.set(wipe, { y: '0%' });
+  gsap.set(word, { opacity: 1 });
+  gsap.timeline({ onComplete: () => wipe.remove() })
+    .to(word, { opacity: 0, duration: 0.24, ease: 'power2.out' })
+    .to(wipe, { y: '-100%', duration: 0.62, ease: 'expo.inOut' }, 0.05);
+}
+
 async function boot() {
+  playArrival();
   renderStatus();
   renderSources();
   initMap();
