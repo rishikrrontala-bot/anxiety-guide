@@ -112,12 +112,38 @@ test('the platform-agnostic fallback strips the satellite, and only that', () =>
   assert.equal(platformAgnostic('GPW_Population_Density_2020'), 'GPW_Population_Density_2020', 'nothing to strip');
 });
 
-test('guessed colormap URLs cover both naming conventions and both versions', () => {
+test('guessed colormap URLs cover both naming conventions across every version', () => {
   const urls = colorMapUrls('MODIS_Terra_Land_Surface_Temp_Day');
-  assert.equal(urls.length, 4);
-  assert.ok(urls.some((u) => u.endsWith('/v1.3/MODIS_Terra_Land_Surface_Temp_Day.xml')));
-  assert.ok(urls.some((u) => u.endsWith('/v1.3/MODIS_Land_Surface_Temp_Day.xml')));
-  assert.equal(colorMapUrls('GPW_Population_Density_2020').length, 2, 'no platform to strip');
+  assert.ok(urls.some((u) => u.endsWith('/v1.3/MODIS_Terra_Land_Surface_Temp_Day.xml')), 'exact id');
+  assert.ok(urls.some((u) => u.endsWith('/v1.3/MODIS_Land_Surface_Temp_Day.xml')), 'platform stripped');
+  assert.equal(new Set(urls).size, urls.length, 'no duplicate requests');
+  // A layer with no platform to strip asks for exactly half as many URLs.
+  assert.equal(colorMapUrls('GPW_Population_Density_2020').length, urls.length / 2);
+});
+
+test('an indented or line-wrapped identifier is still matched', () => {
+  // A real capabilities document is pretty-printed; an exact string match on
+  // "<ows:Identifier>NAME</ows:Identifier>" silently misses it.
+  const wrapped = `<Contents>
+    <Layer>
+      <ows:Identifier>
+        MODIS_Terra_Land_Surface_Temp_Day
+      </ows:Identifier>
+      <ows:Metadata xlink:href="https://gibs.earthdata.nasa.gov/colormaps/v1.3/Some_Other_Name.xml"/>
+    </Layer>
+  </Contents>`;
+  assert.match(extractColorMapHref(wrapped, 'MODIS_Terra_Land_Surface_Temp_Day'), /Some_Other_Name\.xml$/);
+});
+
+test('a <Layer> element carrying attributes is still bounded correctly', () => {
+  const withAttrs = `<Layer xmlns="x" id="7">
+      <ows:Identifier>A_Layer</ows:Identifier>
+      <ows:Metadata xlink:href="https://gibs.earthdata.nasa.gov/colormaps/v1.3/A.xml"/>
+    </Layer>
+    <Layer><ows:Identifier>B_Layer</ows:Identifier>
+      <ows:Metadata xlink:href="https://gibs.earthdata.nasa.gov/colormaps/v1.3/B.xml"/></Layer>`;
+  assert.match(extractColorMapHref(withAttrs, 'A_Layer'), /\/A\.xml$/);
+  assert.match(extractColorMapHref(withAttrs, 'B_Layer'), /\/B\.xml$/, 'must not bleed into the previous layer');
 });
 
 test('the capabilities document is requested from the matching projection', () => {

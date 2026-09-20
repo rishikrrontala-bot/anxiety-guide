@@ -11,7 +11,12 @@
 
 export const GIBS_BASE = 'https://gibs.earthdata.nasa.gov';
 export const WMTS_3857 = `${GIBS_BASE}/wmts/epsg3857/best`;
-export const COLORMAP_BASES = [`${GIBS_BASE}/colormaps/v1.3`, `${GIBS_BASE}/colormaps/v1.0`];
+export const COLORMAP_BASES = [
+  `${GIBS_BASE}/colormaps/v1.3`,
+  `${GIBS_BASE}/colormaps/v1.2`,
+  `${GIBS_BASE}/colormaps/v1.1`,
+  `${GIBS_BASE}/colormaps/v1.0`,
+];
 
 /** Matrix set names, finest first: a finer set means a sharper analysis. */
 export const MATRIX_SETS = [
@@ -86,13 +91,20 @@ function colormapVersion(url) {
  * block; several colormap versions may be listed, and the newest wins.
  */
 export function extractColorMapHref(xml, layer) {
-  const marker = `<ows:Identifier>${layer}</ows:Identifier>`;
-  const idx = xml.indexOf(marker);
-  if (idx < 0) return null;
-  const start = xml.lastIndexOf('<Layer>', idx);
-  const endRel = xml.indexOf('</Layer>', idx);
-  if (start < 0 || endRel < 0) return null;
-  const block = xml.slice(start, endRel);
+  if (!xml || !layer) return null;
+  // Tolerate indentation, line wrapping and a namespace prefix on Identifier.
+  const idRe = new RegExp(`<(?:\\w+:)?Identifier>\\s*${layer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*</(?:\\w+:)?Identifier>`);
+  const hit = idRe.exec(xml);
+  if (!hit) return null;
+  const idx = hit.index;
+  // <Layer> may carry attributes, so search for the opening tag, not a literal.
+  const before = xml.slice(0, idx);
+  const openRe = /<(?:\w+:)?Layer(?:\s[^>]*)?>/g;
+  let start = -1, m;
+  while ((m = openRe.exec(before))) start = m.index;
+  const endMatch = /<\/(?:\w+:)?Layer>/.exec(xml.slice(idx));
+  if (start < 0 || !endMatch) return null;
+  const block = xml.slice(start, idx + endMatch.index);
   const hrefs = [...block.matchAll(/xlink:href="([^"]*\/colormaps\/[^"]*\.xml)"/g)].map((m) => m[1]);
   if (!hrefs.length) return null;
   hrefs.sort((a, b) => colormapVersion(b) - colormapVersion(a));
