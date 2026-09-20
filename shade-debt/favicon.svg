@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Shade Debt">
+  <rect width="32" height="32" rx="7" fill="#141210"/>
+  <circle cx="16" cy="16" r="9" fill="#D77A5A"/>
+  <path d="M16 7a9 9 0 0 1 0 18 9 9 0 0 0 0-18z" fill="#8E3B2A"/>
+  <circle cx="16" cy="16" r="9" fill="none" stroke="#E9CBB8" stroke-opacity=".5" stroke-width="1.2"/>
+</svg>

@@ -3,194 +3,269 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Shade Debt — measure the heat your neighbourhood owes to missing trees</title>
-<meta name="description" content="Shade Debt reads NASA satellite imagery in your browser to measure how much of a neighbourhood's heat is caused by missing vegetation, ranks where planting trees helps the most people, and writes the letter to send to your city.">
-<meta name="author" content="Shade Debt">
-<meta name="theme-color" content="#0b0f14">
+<title>Shade Debt — the heat a neighbourhood owes to its missing trees</title>
+<meta name="description" content="Shade Debt reads NASA satellite imagery in your browser, recovers real surface temperatures from it, and ranks the neighbourhoods where planting trees removes the most heat from the most people.">
+<meta name="theme-color" content="#141210">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Shade Debt">
-<meta property="og:description" content="NASA satellite data, decoded in the browser, to find the neighbourhoods where planting trees removes the most heat from the most people.">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="styles.css">
+<meta property="og:description" content="NASA satellite imagery, decoded in the browser, to find where planting trees removes the most heat from the most people.">
+<link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/schibsted-grotesk-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/site.css">
+<script>
+  // Mark capabilities before first paint so nothing has to flash and correct itself.
+  (function () {
+    var r = document.documentElement;
+    r.classList.add('js');
+    try {
+      var c = document.createElement('canvas');
+      if (!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')))) {
+        r.classList.add('no-webgl');
+      }
+    } catch (e) { r.classList.add('no-webgl'); }
+  })();
+</script>
 </head>
 <body>
-<a class="skip-link" href="#panel">Skip to results</a>
+<a class="skip-link" href="#main">Skip to content</a>
 
-<div class="app">
-  <header class="masthead">
-    <div class="brand">
-      <h1>Shade Debt</h1>
-      <span class="tag">The heat a neighbourhood owes to its missing trees — measured from orbit</span>
-    </div>
-    <form class="search" id="search-form" role="search">
-      <label class="skip-link" for="place">Search for a place</label>
-      <input id="place" type="search" autocomplete="off" spellcheck="false"
-             placeholder="Search a city, or tap the map…" aria-label="Search for a place">
-      <button class="primary" type="submit" id="analyse-btn">Analyse</button>
-      <div class="results" id="results" role="listbox" aria-label="Place search results"></div>
-    </form>
-  </header>
+<div class="globe-stage" id="globe-stage" aria-hidden="true"></div>
 
-  <main class="panel" id="panel" tabindex="-1">
+<header class="nav">
+  <a class="nav__mark" href="./">Shade Debt</a>
+  <nav class="nav__right" aria-label="Primary">
+    <a class="nav__link" href="#method">Method</a>
+    <a class="nav__link" href="https://github.com/rishikrrontala-bot/anxiety-guide/tree/main/shade-debt" target="_blank" rel="noopener noreferrer">Source</a>
+    <a class="nav__link" href="app/" data-transition>Open the tool</a>
+  </nav>
+</header>
 
-    <section class="card" aria-labelledby="h-status">
-      <h2 id="h-status">Data sources</h2>
-      <p class="lede" id="intro">
-        This tool measures <strong>shade debt</strong>: the share of a neighbourhood's surface heat
-        that is attributable to missing vegetation, in degrees Celsius, calibrated from that
-        area's own satellite record.
-      </p>
-      <div class="status" id="status"></div>
-    </section>
+<main class="page" id="main">
 
-    <section class="card" id="summary-card" aria-labelledby="h-summary" hidden>
-      <h2 id="h-summary">Result</h2>
-      <div class="stats" id="summary"></div>
-    </section>
-
-    <section class="card" id="calibration-card" aria-labelledby="h-cal" hidden>
-      <h2 id="h-cal">Local calibration</h2>
-      <p class="lede" id="cal-text"></p>
-      <svg class="scatter" id="scatter" viewBox="0 0 320 190" role="img" aria-labelledby="cal-alt"></svg>
-      <desc id="cal-alt">Scatter plot of vegetation index against land surface temperature for every grid cell, with the fitted cooling slope.</desc>
-    </section>
-
-    <section class="card" id="sites-card" aria-labelledby="h-sites" hidden>
-      <h2 id="h-sites">Priority sites</h2>
-      <p class="lede" id="sites-text"></p>
-      <table class="sites" id="sites">
-        <thead>
-          <tr>
-            <th scope="col" class="rank">#</th>
-            <th scope="col">Location</th>
-            <th scope="col" class="num">Debt</th>
-            <th scope="col" class="num">People</th>
-            <th scope="col" class="num">Trees</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section class="card" id="trend-card" aria-labelledby="h-trend" hidden>
-      <h2 id="h-trend">How fast this place is warming</h2>
-      <p class="lede" id="trend-text"></p>
-      <svg class="spark" id="spark" viewBox="0 0 320 110" role="img" aria-labelledby="trend-alt"></svg>
-      <desc id="trend-alt">Hot-season air temperature by year from the NASA POWER record, with its long-term trend line.</desc>
-      <p class="lede" id="crosscheck" style="margin-top:10px"></p>
-    </section>
-
-    <section class="card" id="actions-card" aria-labelledby="h-actions" hidden>
-      <h2 id="h-actions">Take it somewhere</h2>
-      <div class="actions">
-        <button class="primary" id="btn-letter" type="button">Letter to council</button>
-        <button class="ghost" id="btn-geojson" type="button">GeoJSON</button>
-        <button class="ghost" id="btn-csv" type="button">CSV</button>
-        <button class="ghost" id="btn-link" type="button">Copy link</button>
+  <!-- 1 ............................................................. hero -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero__type">
+      <h1 class="hero__title" id="hero-title" data-reveal>The heat a neighbourhood <em>owes</em> to its missing trees.</h1>
+      <p class="hero__lead" data-reveal data-reveal-delay="0.25">Shade Debt reads NASA satellite imagery in your browser, recovers real surface temperatures from it, and ranks the places where planting removes the most heat from the most people.</p>
+      <div class="hero__cta" data-fade data-reveal-delay="0.5">
+        <a class="btn" href="app/" data-transition>
+          Measure a city
+          <span class="btn__arrow" aria-hidden="true">→</span>
+        </a>
       </div>
-    </section>
-
-    <section class="card" aria-labelledby="h-method">
-      <h2 id="h-method">Method &amp; limits</h2>
-
-      <details class="method">
-        <summary>How a temperature is recovered from a picture</summary>
-        <div class="body">
-          <p>NASA GIBS serves science layers as pre-coloured images, not numbers. For every layer
-          NASA also publishes the exact palette as a ColorMap document, mapping each RGB triplet to
-          the physical interval it represents.</p>
-          <p>This page fetches that palette, builds a reverse lookup, and inverts each pixel back to
-          a value — degrees Celsius for temperature, unitless for NDVI, persons per square kilometre
-          for population. Units are read from NASA's metadata rather than assumed. Palette entries
-          marked transparent or no-data decode to nothing, which is how cloud and fill pixels are
-          screened out.</p>
-        </div>
-      </details>
-
-      <details class="method">
-        <summary>Why several dates instead of one</summary>
-        <div class="body">
-          <p>A single thermal image is mostly cloud. The analysis samples the same grid across
-          several dates drawn from the area's hottest season — June to September in the northern
-          hemisphere, December to March in the southern — and takes the per-cell median of whatever
-          decodes. One bad day cannot move the result, and a date that returns nothing is skipped
-          rather than failing the run.</p>
-        </div>
-      </details>
-
-      <details class="method">
-        <summary>Where the number comes from</summary>
-        <div class="body">
-          <p>Across every valid cell, land surface temperature is regressed against NDVI using the
-          <strong>Theil–Sen estimator</strong>, the median of all pairwise slopes, which resists the
-          outliers that water bodies and cloud edges introduce. That slope is this area's measured
-          cooling rate, in degrees per unit of vegetation index. R² from ordinary least squares is
-          reported alongside so you can see how strong the relationship actually is.</p>
-          <p>A cell's <strong>shade debt</strong> is its vegetation shortfall against the local 75th
-          percentile, multiplied by that slope. Sites are ranked by
-          <strong>degree-persons</strong> — avoidable heat times the people living in the cell — so
-          that a hot empty cell does not outrank a slightly cooler one where thousands live.</p>
-          <p>Tree counts come from fractional vegetation cover, <code>FVC = ((NDVI − NDVI_soil) /
-          (NDVI_veg − NDVI_soil))²</code>, after Carlson &amp; Ripley (1997), converted to canopy
-          area and divided by 50 m² per established tree.</p>
-        </div>
-      </details>
-
-      <details class="method">
-        <summary>What this cannot tell you</summary>
-        <div class="body">
-          <p><strong>Land surface temperature is not air temperature.</strong> It is the temperature
-          of the ground itself, measured by a thermal sensor, and on a summer afternoon asphalt runs
-          far hotter than the air above it. Treat these values as a comparison between places, not
-          as what a thermometer would read.</p>
-          <p><strong>The grid is about one kilometre.</strong> MODIS thermal resolution identifies
-          neighbourhoods, not individual streets. This is triage — where to look first — and not a
-          planting plan.</p>
-          <p><strong>Correlation, not proof.</strong> Vegetation and temperature move together for
-          reasons beyond shade: water, elevation, building density and surface material all play a
-          part. The measured slope is a defensible local association, not a guarantee that planting
-          a tree delivers exactly that cooling.</p>
-          <p><strong>Population is modelled.</strong> SEDAC's gridded population is itself an
-          estimate, redistributed from census units.</p>
-        </div>
-      </details>
-
-      <details class="method">
-        <summary>Sources &amp; credits</summary>
-        <div class="body" id="sources"></div>
-      </details>
-    </section>
-  </main>
-
-  <div class="mapwrap">
-    <div id="map" role="application" aria-label="Map of analysed grid cells"></div>
-
-    <div class="maptools">
-      <button type="button" id="btn-basemap" aria-pressed="false">Satellite</button>
-      <button type="button" id="btn-layer" aria-pressed="true">Shade debt</button>
     </div>
 
-    <div class="legend" id="legend" hidden>
-      <h3 id="legend-title">Shade debt</h3>
-      <div class="ramp" id="legend-ramp"></div>
-      <div class="ends"><span id="legend-min">0</span><span id="legend-max"></span></div>
-      <div style="margin-top:6px" id="legend-note"></div>
+    <div class="hero__meta u-micro" data-fade data-reveal-delay="0.65">
+      <span>Sensor <b class="u-mono">MODIS · 1.1 km</b></span>
+      <span>Keys required <b>None</b></span>
+      <span>Computation <b>Entirely in your browser</b></span>
+      <span>Data <b>NASA GIBS · SEDAC · POWER</b></span>
     </div>
+  </section>
 
-    <div class="overlay-msg" id="overlay">
-      <div class="box">
-        <h3 id="overlay-title">Pick a place to begin</h3>
-        <p id="overlay-text">Search a city above, or tap anywhere on the map. The analysis runs
-        entirely in your browser against NASA's public imagery — nothing is uploaded, and no
-        account or key is needed.</p>
-        <p class="step" id="overlay-step"></p>
+  <!-- 2 .......................................................... the gap -->
+  <section class="section gap" aria-labelledby="gap-title">
+    <div class="gap__inner">
+      <div class="gap__rule" aria-hidden="true"></div>
+      <h2 id="gap-title" data-reveal>Within one city, one block runs hotter than the next. That is not weather.</h2>
+      <p data-reveal data-reveal-delay="0.15">It tracks where the trees are. Shade debt is the part of that difference you could take back — and this measures it, in degrees, from orbit.</p>
+    </div>
+  </section>
+
+  <!-- 3 ................................................. pinned · measures -->
+  <section class="measures" id="measures" aria-labelledby="measures-title">
+    <div class="measures__pin" id="measures-pin">
+      <div class="measures__head">
+        <h2 id="measures-title" data-reveal>Three layers, one grid, one question.</h2>
       </div>
+
+      <ol class="steps" id="steps">
+        <li class="step" data-step="0">
+          <span class="step__n" aria-hidden="true">01</span>
+          <div>
+            <h3>Surface temperature</h3>
+            <p>MODIS thermal, day and night. The night band matters most — heat illness accumulates when the dark does not let a body cool.</p>
+          </div>
+        </li>
+        <li class="step" data-step="1">
+          <span class="step__n" aria-hidden="true">02</span>
+          <div>
+            <h3>Vegetation</h3>
+            <p>NDVI on the same grid, composited across a season so that a single cloudy day cannot decide the answer.</p>
+          </div>
+        </li>
+        <li class="step" data-step="2">
+          <span class="step__n" aria-hidden="true">03</span>
+          <div>
+            <h3>People</h3>
+            <p>SEDAC gridded population, because a hot empty lot is not the same problem as a hot street where a thousand people sleep.</p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="measures__out">
+        <p>Priority is avoidable heat multiplied by the people it is avoidable for. <b>Degree-persons.</b> No weights to argue about.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 ....................................................... the method -->
+  <section class="section section--paper method" id="method" aria-labelledby="method-title">
+    <div class="method__grid">
+      <div>
+        <h2 id="method-title" data-reveal>How a temperature is recovered from a picture.</h2>
+        <p data-reveal data-reveal-delay="0.1">NASA serves these layers as coloured images, not numbers. It also publishes the exact palette for each one — every RGB triplet mapped to the physical interval it represents.</p>
+        <p>Shade Debt fetches that palette, stitches the map tiles into a canvas, reads the pixels back, and inverts each one into degrees Celsius. The units come from NASA's own metadata, never from an assumption baked into this page.</p>
+        <p>Palette entries marked <code>transparent</code> or no-data decode to nothing. So the cloud mask falls out of the method for free — a clouded pixel simply never becomes a measurement.</p>
+      </div>
+
+      <div>
+        <div class="tiles" id="tiles">
+          <figure class="tile">
+            <div class="tile__img"><canvas id="tile-lst" width="128" height="128" aria-label="MODIS land surface temperature tile, fetched live from NASA"></canvas></div>
+            <figcaption class="tile__label">Surface temp</figcaption>
+            <span class="tile__value" id="val-lst" data-state="pending">decoding…</span>
+          </figure>
+          <figure class="tile">
+            <div class="tile__img"><canvas id="tile-ndvi" width="128" height="128" aria-label="MODIS vegetation index tile, fetched live from NASA"></canvas></div>
+            <figcaption class="tile__label">Vegetation</figcaption>
+            <span class="tile__value" id="val-ndvi" data-state="pending">decoding…</span>
+          </figure>
+          <figure class="tile">
+            <div class="tile__img"><canvas id="tile-pop" width="128" height="128" aria-label="SEDAC gridded population density tile, fetched live from NASA"></canvas></div>
+            <figcaption class="tile__label">Population</figcaption>
+            <span class="tile__value" id="val-pop" data-state="pending">decoding…</span>
+          </figure>
+        </div>
+        <p class="tiles__caption" id="tiles-caption">Live NASA tiles, decoded in this page as you read it. If your network blocks them these panels stay empty — they will not show you something invented.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 .................................................. the calibration -->
+  <section class="section section--paper calib" aria-labelledby="calib-title">
+    <h2 id="calib-title" data-reveal>Calibrated here. Not borrowed.</h2>
+    <p class="calib__lead" data-reveal data-reveal-delay="0.1">The cooling slope is measured from the study area's own cells. Ordinary least squares is not good enough for that job: water bodies and cloud edges throw outliers that drag the line off. Shade Debt uses Theil–Sen — the median of every pairwise slope.</p>
+
+    <div class="calib__demo">
+      <div class="plot" id="plot" role="application" tabindex="0"
+           aria-label="Interactive demonstration. Add outlier points and compare the least-squares line with the robust Theil-Sen line.">
+        <svg id="plot-svg" viewBox="0 0 640 400" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <span class="plot__hint">Click or drag to add an outlier · press R to reset</span>
+      </div>
+
+      <div class="readout">
+        <div class="readout__row">
+          <span class="readout__k">True slope</span>
+          <span class="readout__v u-mono" id="r-true">−10.0</span>
+        </div>
+        <div class="readout__row">
+          <span class="readout__k">Least squares</span>
+          <span class="readout__v u-mono" id="r-ols">−10.0</span>
+        </div>
+        <div class="readout__row">
+          <span class="readout__k">Theil–Sen (robust)</span>
+          <span class="readout__v readout__v--ts u-mono" id="r-ts">−10.0</span>
+        </div>
+        <p class="readout__note" id="r-note">Add a few outliers. The dashed least-squares line bends toward them; the solid robust line holds.</p>
+        <div class="readout__actions">
+          <button class="btn btn--ghost btn--on-paper" type="button" id="plot-outlier">Add outlier</button>
+          <button class="btn btn--ghost btn--on-paper" type="button" id="plot-reset">Reset</button>
+        </div>
+        <span class="demo-tag">Synthetic points — a demonstration of the estimator, not a measurement</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 ....................................................... the letter -->
+  <section class="section letter" aria-labelledby="letter-title">
+    <div class="letter__grid">
+      <div>
+        <h2 id="letter-title" data-reveal>It ends with something you can send.</h2>
+        <p data-reveal data-reveal-delay="0.1">Not a dashboard. A ranked list of coordinates, the measured numbers behind every one of them, and the caveats stated in the same breath rather than buried. Plus GeoJSON that a city GIS office opens directly.</p>
+        <div class="letter__exports" data-fade>
+          <span class="chip">GeoJSON</span>
+          <span class="chip">CSV</span>
+          <span class="chip">Letter</span>
+          <span class="chip">Permalink</span>
+        </div>
+      </div>
+
+      <figure class="paper-card" data-fade aria-label="Excerpt of the generated letter">
+<pre>To: <span class="ph">[Members of the City Council]</span>
+Subject: Measured heat priority sites in <span class="ph">[your city]</span>
+
+Using NASA satellite observations, I measured surface
+temperature and vegetation cover across <span class="ph">[your city]</span> on a
+grid of approximately one kilometre cells, and calculated
+how much of each cell's heat is attributable to missing
+vegetation.
+
+Across <span class="ph">[N]</span> grid cells in this area, each unit of
+vegetation index is associated with <span class="ph">[X]</span> C of surface
+cooling (Theil-Sen estimator). That coefficient was
+measured here, not borrowed from another city.
+
+A note on method, offered honestly: these are satellite
+measurements of land surface temperature, which is the
+temperature of the ground itself and runs warmer than the
+air temperature a thermometer reports.</pre>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 7 ........................................................ the enter -->
+  <section class="section enter" aria-labelledby="enter-title">
+    <h2 id="enter-title" data-reveal>Measure your own city.</h2>
+    <div class="enter__row">
+      <p data-fade>About a minute to run. No account, no key, nothing uploaded — every request goes straight from your browser to NASA.</p>
+      <a class="btn" href="app/" data-transition>
+        Open Shade Debt
+        <span class="btn__arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="footer__cols">
+    <div>
+      <h3>Data</h3>
+      <ul>
+        <li><a href="https://nasa-gibs.github.io/gibs-api-docs/" target="_blank" rel="noopener noreferrer">NASA GIBS</a></li>
+        <li><a href="https://sedac.ciesin.columbia.edu/data/collection/gpw-v4" target="_blank" rel="noopener noreferrer">NASA SEDAC</a></li>
+        <li><a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener noreferrer">NASA POWER</a></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Project</h3>
+      <ul>
+        <li><a href="https://github.com/rishikrrontala-bot/anxiety-guide/tree/main/shade-debt" target="_blank" rel="noopener noreferrer">Source code</a></li>
+        <li><a href="https://github.com/rishikrrontala-bot/anxiety-guide/blob/main/shade-debt/README.md" target="_blank" rel="noopener noreferrer">Method &amp; limits</a></li>
+        <li><a href="https://github.com/rishikrrontala-bot/anxiety-guide/blob/main/shade-debt/ATTRIBUTION.md" target="_blank" rel="noopener noreferrer">Attribution</a></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Reading</h3>
+      <ul>
+        <li>Carlson &amp; Ripley (1997), fractional vegetation cover</li>
+        <li>Sen (1968), robust regression</li>
+      </ul>
     </div>
   </div>
-</div>
+  <div class="footer__base">
+    <span>Built for NextStep Hacks 2026 — <span class="u-mono">Earth Forward</span></span>
+    <span>Land surface temperature is not air temperature.</span>
+  </div>
+</footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script type="module" src="js/app.js"></script>
+<div class="wipe" id="wipe" aria-hidden="true"><span class="wipe__word">Shade Debt</span></div>
+
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<script src="vendor/lenis.min.js"></script>
+<script type="module" src="js/site.js"></script>
 </body>
 </html>

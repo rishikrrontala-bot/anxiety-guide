@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Globe harness — Shade Debt</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #141210; color: #F5F1EA;
+    font: 13px ui-monospace, monospace; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #out { position: fixed; left: 12px; bottom: 12px; z-index: 5; color: #D77A5A; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<p id="out">mounting…</p>
+<script type="module">
+  import { mountGlobe } from '../js/globe.js';
+
+  // A synthetic equirectangular texture. This exists only to exercise the
+  // Three.js scene without a network; the site itself never uses it.
+  function harnessTexture() {
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 512;
+    const x = c.getContext('2d');
+    x.fillStyle = '#16314a'; x.fillRect(0, 0, c.width, c.height);
+    x.fillStyle = '#4f6b43';
+    for (let i = 0; i < 40; i++) {
+      x.beginPath();
+      x.ellipse((i * 137) % c.width, 80 + ((i * 97) % 360), 40 + (i % 7) * 12, 24 + (i % 5) * 9, i, 0, Math.PI * 2);
+      x.fill();
+    }
+    x.strokeStyle = 'rgba(245,241,234,.35)';
+    for (let lon = 0; lon < c.width; lon += 128) { x.beginPath(); x.moveTo(lon, 0); x.lineTo(lon, c.height); x.stroke(); }
+    for (let lat = 0; lat < c.height; lat += 64) { x.beginPath(); x.moveTo(0, lat); x.lineTo(c.width, lat); x.stroke(); }
+    return c;
+  }
+
+  const out = document.getElementById('out');
+  try {
+    const globe = await mountGlobe(document.getElementById('stage'), {
+      textureSource: harnessTexture(), rim: '#E9CBB8',
+    });
+    globe.setProgress(0.35);
+    window.__globe = globe;
+    await new Promise((r) => setTimeout(r, 600));
+    const canvas = document.querySelector('#stage canvas');
+    const gl = canvas && canvas.getContext('webgl2') || canvas && canvas.getContext('webgl');
+    window.__harness = {
+      mounted: Boolean(canvas),
+      width: canvas ? canvas.width : 0,
+      height: canvas ? canvas.height : 0,
+      shaderErrors: gl ? gl.getError() : 'no-context',
+      lowPower: globe.lowPower,
+      source: globe.source,
+    };
+    out.textContent = 'mounted · ' + JSON.stringify(window.__harness);
+  } catch (err) {
+    window.__harness = { mounted: false, error: String(err && err.message || err) };
+    out.textContent = 'FAILED · ' + window.__harness.error;
+  }
+</script>
+</body>
+</html>
