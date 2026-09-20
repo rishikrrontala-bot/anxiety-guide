@@ -208,7 +208,7 @@ cd shade-debt
 npm test          # node --test test/*.test.js
 ```
 
-89 tests, no dependencies, no network access required.
+116 tests, no dependencies, no network access required.
 
 ---
 
@@ -243,7 +243,7 @@ shade-debt/
 │   ├── services.js         place search and reverse lookup
 │   └── exporters.js        GeoJSON, CSV, letter                         (pure)
 └── test/
-    ├── *.test.js           89 tests over the analytical core
+    ├── *.test.js           116 tests over the analytical core
     └── globe-harness.html  mounts the globe against a synthetic texture,
                             so the WebGL path is verifiable without a network
 ```
