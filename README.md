@@ -96,6 +96,33 @@ snap, unrelated colours decode to `null` rather than being forced to a wrong val
 Kelvin is converted using the `units` attribute, with a magnitude check only as a
 fallback for layers that omit it.
 
+Real documents declare no-data in a **separate** `ColorMap` block titled "No Data", so
+the mask is the union of every block's transparent entries rather than just the data
+block's. Reading only the data block leaves the fill colour unmasked, and a fill pixel
+then gets nearest-matched to a real temperature — a silent corruption of the very cloud
+mask this method depends on. The parser is tested against unmodified GIBS documents
+taken from NASA's own `onearth` repository, which is how that was caught.
+
+### Finding the palette in the first place
+
+Colormap filenames do **not** match layer identifiers. NASA's own documentation pairs
+the `AMSRU2_*` layers with a colormap called `AMSR_Surface_Precipitation.xml`: palettes
+are named after the product and shared between the satellites carrying it. So the
+filename is discovered, not constructed, in this order:
+
+1. the URL resolved on a previous visit, remembered in `localStorage`;
+2. the layer identifier itself, newest colormap version first — correct for SEDAC;
+3. the identifier with the satellite removed, since Terra and Aqua share palettes;
+4. **the published colormap directory index**, matched by name: a candidate qualifies
+   only when every one of its tokens appears in the layer's name, and the most specific
+   qualifying candidate wins, so `MODIS_Land_Surface_Temp_Day` beats the shorter
+   `MODIS_Land_Surface_Temp` and can never be confused with `..._Night`;
+5. failing all of that, the href published for that layer in the WMTS capabilities
+   document.
+
+Steps 4 and 5 are self-healing: if NASA renames a palette tomorrow, the app finds the
+new name without a code change.
+
 ### Calibrating, not assuming
 
 The vegetation–temperature slope is measured per study area, never borrowed:
