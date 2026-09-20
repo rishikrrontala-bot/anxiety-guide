@@ -24,6 +24,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   resolved: {},
   luts: {},
+  failures: {},
   analysis: null,
   place: null,
   centre: null,
@@ -205,6 +206,7 @@ async function boot() {
     const found = await resolveLayer({ candidates: cfg.candidates, time: null, ext: cfg.ext });
     if (!found.layer) {
       setStatus(key, cfg.required ? 'bad' : 'warn', 'unreachable');
+      state.failures[key] = 'layer';
       return;
     }
     state.resolved[key] = { ...found, urlBase: WMTS_3857, ext: cfg.ext, cfg };
@@ -218,6 +220,7 @@ async function boot() {
     } catch (err) {
       delete state.resolved[key];
       setStatus(key, cfg.required ? 'bad' : 'warn', 'no palette');
+      state.failures[key] = 'palette';
     }
   });
 
@@ -226,11 +229,24 @@ async function boot() {
 
   const missing = Object.entries(LAYERS).filter(([k, c]) => c.required && !state.resolved[k]);
   if (missing.length) {
-    showOverlay(
-      'NASA imagery is not reachable from this browser',
-      'The required layers could not be probed. This is usually a network or cross-origin restriction '
-      + 'rather than a problem with the data. The climate record below still works, but the grid analysis needs imagery.',
-    );
+    // The two failures are not the same problem and must not read as one: an
+    // unreachable layer is a network restriction, a missing palette means the
+    // imagery arrived but cannot be turned back into numbers.
+    const onlyPalettes = missing.every(([k]) => state.failures[k] === 'palette');
+    if (onlyPalettes) {
+      showOverlay(
+        'The colour palettes could not be loaded',
+        'NASA\u2019s imagery is reachable, but the palette files that turn those coloured tiles back into '
+        + 'temperatures did not load, so there is nothing to decode. This is usually temporary. Reloading '
+        + 'the page often clears it.',
+      );
+    } else {
+      showOverlay(
+        'NASA imagery is not reachable from this browser',
+        'The required layers could not be probed. This is usually a network or cross-origin restriction '
+        + 'rather than a problem with the data. The climate record below still works, but the grid analysis needs imagery.',
+      );
+    }
   } else {
     showOverlay('Pick a place to begin',
       'Search a city above, or tap anywhere on the map. Everything runs in your browser against NASA’s public imagery.');
@@ -272,7 +288,14 @@ function chooseCellPx(bounds, zoom, maxCells) {
 async function runAnalysis(lat, lon, label) {
   if (state.running) return;
   if (!state.resolved.lstDay || !state.resolved.ndvi) {
-    showOverlay('Imagery unavailable', 'The required NASA layers could not be reached from this browser.');
+    const palette = state.failures.lstDay === 'palette' || state.failures.ndvi === 'palette';
+    showOverlay(
+      palette ? 'Palettes unavailable' : 'Imagery unavailable',
+      palette
+        ? 'The imagery loads, but without NASA\u2019s colour palettes those tiles cannot be turned back into '
+          + 'temperatures. Try reloading the page.'
+        : 'The required NASA layers could not be reached from this browser.',
+    );
     return;
   }
   state.running = true;

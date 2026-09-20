@@ -104,7 +104,7 @@ const ATMOSPHERE_FRAG = `
   uniform float uStrength;
   varying vec3 vNormal;
   void main() {
-    float rim = pow(0.72 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.6);
+    float rim = pow(max(0.0, 0.66 - dot(vNormal, vec3(0.0, 0.0, 1.0))), 3.2);
     gl_FragColor = vec4(uColor, clamp(rim * uStrength, 0.0, 1.0));
   }`;
 
@@ -157,7 +157,7 @@ export async function mountGlobe(container, options = {}) {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, container.clientWidth / container.clientHeight, 0.1, 100);
-  camera.position.set(0, 0, 3.9);
+  camera.position.set(0, 0, 6.0);
 
   const world = new THREE.Group();
   // Earth's own tilt, so the globe never reads as a perfectly upright prop.
@@ -177,7 +177,7 @@ export async function mountGlobe(container, options = {}) {
     new THREE.ShaderMaterial({
       uniforms: {
         uColor: { value: new THREE.Color(options.rim || '#E9CBB8') },
-        uStrength: { value: 0.85 },
+        uStrength: { value: 0.55 },
       },
       vertexShader: ATMOSPHERE_VERT,
       fragmentShader: ATMOSPHERE_FRAG,
@@ -223,16 +223,16 @@ export async function mountGlobe(container, options = {}) {
 
     // Scroll drives a dolly from whole planet toward the ground.
     const dolly = lowPower || reducedMotion ? 0 : progress;
-    camera.position.z = 3.9 - dolly * 1.5;
-    camera.position.y = dolly * 0.14;
+    camera.position.z = 6.0 - dolly * 1.2;
+    camera.position.y = dolly * 0.12;
     camera.lookAt(0, 0, 0);
 
     world.rotation.y = spin + progress * 0.9;
     // Hold the globe clear of the text column: beside it on wide viewports,
     // lifted above it on narrow ones.
     const wide = window.innerWidth >= 900;
-    world.position.x = options.offsetX ?? (wide ? 0.72 : 0.12);
-    world.position.y = options.offsetY ?? (wide ? 0.06 : 0.62);
+    world.position.x = options.offsetX ?? (wide ? 1.6 : 0.1);
+    world.position.y = options.offsetY ?? (wide ? 0.1 : 1.15);
     if (stars) stars.rotation.y = spin * 0.35;
 
     renderer.render(scene, camera);
