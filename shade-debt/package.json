@@ -1,0 +1,10 @@
+{
+  "name": "shade-debt",
+  "version": "1.0.0",
+  "description": "Neighborhood-scale urban heat triage from NASA satellite data.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
