@@ -158,7 +158,7 @@ gradients standing in for photographs.
 - A metric with honest units — degree-persons — and no arbitrary weights to defend.
 - A model that is **calibrated per city from that city's own data** rather than applying
   one borrowed coefficient everywhere.
-- **89 passing tests** covering the whole analytical core, plus a WebGL harness that
+- **116 passing tests** covering the whole analytical core, plus a WebGL harness that
   makes the 3D verifiable offline.
 - An interface audited for WCAG 2.2 AA: contrast checked on every text node at two
   viewports, 24px minimum target sizes, visible focus on every tab stop, sane heading
