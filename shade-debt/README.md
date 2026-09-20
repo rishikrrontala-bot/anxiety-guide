@@ -1,0 +1,194 @@
+# Shade Debt
+
+**The heat a neighbourhood owes to its missing trees — measured from orbit, in your browser.**
+
+Shade Debt reads NASA satellite imagery directly in the browser, recovers physical
+temperatures from it, and answers a question a city can act on: *of all the places we
+could plant trees, which ones remove the most heat from the most people?*
+
+It ends with a ranked list of coordinates, a GeoJSON file a city GIS office can open,
+and a letter filled with the measured numbers, ready to send.
+
+Built for **NextStep Hacks 2026** — theme *Earth Forward*.
+
+---
+
+## The idea
+
+Urban heat is the deadliest climate hazard most people will personally meet, and it is
+not distributed evenly. Within a single city, surface temperature routinely varies by
+more than 10 °C, and the pattern tracks tree canopy almost everywhere it has been
+studied.
+
+Most heat maps stop at showing you that. Shade Debt goes one step further and asks how
+much of each neighbourhood's heat is *avoidable* — the portion attributable to missing
+vegetation — then weights that by the people who live there.
+
+> **Shade debt**: the degrees Celsius of surface heat a cell carries because its
+> vegetation falls short of the local target, using a cooling rate measured from that
+> city's own satellite record.
+>
+> **Priority = shade debt × people in the cell**, giving **degree-persons**: avoidable
+> heat multiplied by who benefits from removing it. No arbitrary weights.
+
+## What it actually does
+
+1. **Probes NASA GIBS** for the best available layers. Each product is tried across
+   candidate tile matrix sets until one answers, so a renamed or retired layer degrades
+   to the next best source instead of breaking the page.
+2. **Fetches each layer's published colormap** and builds a reverse RGB → value lookup.
+3. **Stitches tiles into a canvas and reads the pixels back**, inverting each one through
+   that palette to recover a physical value. Units come from NASA's metadata, not from a
+   hardcoded assumption.
+4. **Composites across several dates** from the area's hottest season, hemisphere-aware,
+   taking the per-cell median. Palette entries marked transparent or no-data decode to
+   nothing, so **the cloud mask falls out of the method for free**.
+5. **Calibrates the local cooling slope** by regressing surface temperature against NDVI
+   across every valid cell, using the Theil–Sen estimator.
+6. **Ranks cells** by degree-persons and renders the result.
+7. **Cross-checks itself** against NASA POWER, an independent record built from different
+   instruments, and reports the gap honestly rather than hiding it.
+
+## Data sources — all free, all keyless
+
+| Source | Used for | Resolution |
+|---|---|---|
+| NASA GIBS — MODIS Land Surface Temperature (Day & Night) | Surface heat, thermal mass | ~1 km |
+| NASA GIBS — MODIS NDVI (8-day composite) | Vegetation cover | ~250 m–1 km |
+| NASA GIBS — SEDAC Gridded Population of the World v4 | People exposed | ~1 km |
+| NASA POWER | 40-year warming trend, independent cross-check | ~50 km |
+| Open-Meteo Geocoding | Place search | — |
+
+There is no backend, no API key, and no account. Nothing about the user's location is
+uploaded anywhere — every request goes straight from the browser to NASA.
+
+## Why night temperature is in here
+
+Daytime peaks get the attention, but heat illness accumulates when the night does not
+let the body recover. Shade Debt reads the **night** thermal band as well as the day
+one, reports each cell's night excess against the local median, and derives a thermal
+mass indicator from the day–night spread — hard surfaces store heat and release it
+after dark. The NASA POWER panel reports the overnight-minimum trend separately for the
+same reason.
+
+---
+
+## Method
+
+### Recovering numbers from a picture
+
+GIBS serves science layers as pre-coloured PNGs. NASA publishes the palette for each
+layer as a ColorMap document mapping every RGB triplet to a physical interval:
+
+```xml
+<ColorMap title="Land Surface Temperature (Day)" units="K">
+  <Entries>
+    <ColorMapEntry rgb="0,0,0"     transparent="true"  value="[-9999,-9999]"/>
+    <ColorMapEntry rgb="6,0,110"   transparent="false" value="[280,281)"/>
+    <ColorMapEntry rgb="255,200,0" transparent="false" value="[320,321)"/>
+  </Entries>
+</ColorMap>
+```
+
+`js/colormap.js` parses that, takes each interval's midpoint, and builds an exact-match
+map plus a nearest-neighbour fallback bounded by a distance tolerance — close colours
+snap, unrelated colours decode to `null` rather than being forced to a wrong value.
+Kelvin is converted using the `units` attribute, with a magnitude check only as a
+fallback for layers that omit it.
+
+### Calibrating, not assuming
+
+The vegetation–temperature slope is measured per study area, never borrowed:
+
+- **Theil–Sen** (median of all pairwise slopes) supplies the coefficient, because water
+  bodies and cloud edges produce outliers that drag an ordinary least-squares fit off.
+  The test suite demonstrates exactly this: with four contaminated cells in forty, OLS
+  is wrong by more than 5 °C/NDVI while Theil–Sen stays within 0.5.
+- **OLS R²** is reported alongside so the strength of the relationship is visible rather
+  than implied, and the scatter plot is drawn so it can be judged by eye.
+- If the measured slope is not negative, the model **reports zero debt** instead of
+  inventing a number.
+
+### From vegetation gap to tree count
+
+Fractional vegetation cover follows Carlson & Ripley (1997):
+
+```
+FVC = ((NDVI − NDVI_soil) / (NDVI_veg − NDVI_soil))²        NDVI_soil = 0.05, NDVI_veg = 0.86
+```
+
+The FVC shortfall against the local target becomes canopy area, divided by 50 m² per
+established street tree.
+
+---
+
+## Limitations, stated plainly
+
+- **Land surface temperature is not air temperature.** It is the temperature of the
+  ground, and on a summer afternoon asphalt runs far hotter than the air above it. Read
+  these values as a comparison between places, not as what a thermometer shows.
+- **The grid is about one kilometre.** MODIS thermal resolution identifies
+  neighbourhoods, not streets. This is triage — where to look first — not a planting plan.
+- **Correlation, not proof.** Vegetation and temperature move together for reasons
+  beyond shade: water, elevation, building density, surface material. The measured slope
+  is a defensible local association, not a guarantee.
+- **Population is modelled.** SEDAC's gridded population is an estimate redistributed
+  from census units.
+- **Cloud is the binding constraint.** If a season was clouded over, coverage drops, and
+  the interface says so rather than quietly analysing four cells.
+
+---
+
+## Running it
+
+It is a static page. No build step, no dependencies to install.
+
+```bash
+python3 -m http.server 8000     # then open http://localhost:8000/shade-debt/
+```
+
+### Tests
+
+The entire analytical core is pure and tested — projection maths, palette inversion,
+statistics, the model, date selection, POWER parsing, exports, and raster sampling.
+
+```bash
+cd shade-debt
+npm test          # node --test test/*.test.js
+```
+
+89 tests, no dependencies, no network access required.
+
+---
+
+## Layout
+
+```
+shade-debt/
+├── index.html          app shell
+├── styles.css          interface styles, dark and light
+└── js/
+    ├── app.js          orchestration, rendering, exports
+    ├── config.js       layer candidates and analysis defaults
+    ├── gibs.js         GIBS client: probing, tile URLs, colormap fetch
+    ├── colormap.js     palette parsing and RGB → value inversion   (pure)
+    ├── raster.js       tile stitching, pixel sampling, compositing
+    ├── geo.js          Web Mercator projection and grid maths       (pure)
+    ├── dates.js        hemisphere-aware observation date selection  (pure)
+    ├── stats.js        median, percentile, OLS, Theil–Sen           (pure)
+    ├── metric.js       the Shade Debt model                         (pure)
+    ├── power.js        NASA POWER client and parsers                (pure parsers)
+    ├── services.js     place search and reverse lookup
+    └── exporters.js    GeoJSON, CSV, letter                         (pure)
+```
+
+## Credits
+
+NASA GIBS, NASA SEDAC, and NASA POWER for open data with no key and no gate.
+Basemap © OpenStreetMap contributors, © CARTO. Mapping by Leaflet.
+
+Carlson, T.N. & Ripley, D.A. (1997). *On the relation between NDVI, fractional
+vegetation cover, and leaf area index.* Remote Sensing of Environment, 62(3), 241–252.
+
+Sen, P.K. (1968). *Estimates of the regression coefficient based on Kendall's tau.*
+Journal of the American Statistical Association, 63(324), 1379–1389.
