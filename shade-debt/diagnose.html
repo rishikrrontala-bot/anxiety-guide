@@ -43,7 +43,10 @@ copy the report. Nothing here is cached or inferred; every line is a real respon
 
 <script type="module">
 import { LAYERS } from './js/config.js';
-import { buildTileUrl, colorMapUrls, capabilitiesUrl, extractColorMapHref, platformAgnostic, MATRIX_SETS } from './js/gibs.js';
+import {
+  buildTileUrl, colorMapUrls, capabilitiesUrl, extractColorMapHref, platformAgnostic,
+  MATRIX_SETS, COLORMAP_BASES, parseDirectoryIndex, bestColorMapMatch,
+} from './js/gibs.js';
 import { parseColorMapXml, pickPrimaryColorMap } from './js/colormap.js';
 
 const out = document.getElementById('out');
@@ -121,13 +124,34 @@ async function run() {
         break;
       }
     }
-    log(`  RESULT: ${found ? 'palette OK' : 'NO PALETTE from any guessed URL'}`);
+    // 3. The authoritative route: read the directory and match by name.
+    if (!found) {
+      for (const base of COLORMAP_BASES) {
+        const short = base.replace('https://gibs.earthdata.nasa.gov/colormaps/', '');
+        const r = await probe(base + '/', { read: true, timeout: 30000 });
+        if (r.error) { log(`  index ${short}/  ERROR ${r.error}`); continue; }
+        if (!r.res.ok) { log(`  index ${short}/  ${describe(r.res, r.body)}`); continue; }
+        const files = parseDirectoryIndex(r.body);
+        const match = bestColorMapMatch(resolved, files);
+        log(`  index ${short}/  ${describe(r.res, r.body)} · ${files.length} palettes listed`);
+        log(`        best match for ${resolved}: ${match || 'NONE'}`);
+        if (!match) continue;
+        const c = await probe(`${base}/${match}`, { read: true });
+        if (c.error) { log(`        fetch ERROR ${c.error}`); continue; }
+        const primary = pickPrimaryColorMap(parseColorMapXml(c.body));
+        const n = primary ? primary.entries.length : 0;
+        log(`        ${describe(c.res, c.body)} · ${n} entries · units "${primary ? primary.units : '-'}"`);
+        if (n > 0) { found = true; break; }
+      }
+    }
+
+    log(`  RESULT: ${found ? 'palette OK' : 'NO PALETTE by any route'}`);
   }
 
   log('');
   log('='.repeat(72));
-  log('Guessed URLs exhausted. If any layer says NO PALETTE, press');
-  log('"Also test capabilities" — that reads the authoritative filename from NASA.');
+  log('If any layer still says NO PALETTE, press "Also test capabilities" —');
+  log('that reads the filename out of NASA\u2019s full service description.');
 }
 
 async function runCaps() {

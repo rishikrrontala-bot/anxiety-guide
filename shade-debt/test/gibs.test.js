@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildTileUrl, tileUrl, colorMapUrls, levelOf, MATRIX_SETS, WMTS_3857,
   extractColorMapHref, platformAgnostic, capabilitiesUrl,
+  parseDirectoryIndex, bestColorMapMatch,
 } from '../js/gibs.js';
 
 test('a time-varying layer gets a TIME segment', () => {
@@ -148,4 +149,83 @@ test('a <Layer> element carrying attributes is still bounded correctly', () => {
 
 test('the capabilities document is requested from the matching projection', () => {
   assert.equal(capabilitiesUrl(), `${WMTS_3857}/1.0.0/WMTSCapabilities.xml`);
+});
+
+/* ---------------------------------------------------------------------------
+ * Colormap directory discovery.
+ *
+ * Colormap filenames do not match layer identifiers: NASA's own documentation
+ * pairs the AMSRU2_* layers with AMSR_Surface_Precipitation.xml. Palettes are
+ * named after the product and shared between the satellites carrying it, so
+ * the filename has to be discovered rather than constructed.
+ * ------------------------------------------------------------------------ */
+
+/** Shaped like an Apache autoindex, which is what GIBS serves. */
+const INDEX_HTML = `<html><head><title>Index of /colormaps/v1.3</title></head><body>
+<h1>Index of /colormaps/v1.3</h1><pre><a href="../">../</a>
+<a href="AIRS_Prata_SO2_Index_Day.xml">AIRS_Prata_SO2_Index_Day.xml</a>   2024-01-02  12K
+<a href="AMSR_Surface_Precipitation.xml">AMSR_Surface_Precipitation.xml</a> 2024-01-02  8.0K
+<a href="MODIS_Land_Surface_Temp.xml">MODIS_Land_Surface_Temp.xml</a>     2024-01-02  30K
+<a href="MODIS_Land_Surface_Temp_Day.xml">MODIS_Land_Surface_Temp_Day.xml</a> 2024-01-02 30K
+<a href="MODIS_Land_Surface_Temp_Night.xml">MODIS_Land_Surface_Temp_Night.xml</a> 2024-01-02 30K
+<a href="MODIS_NDVI_8Day.xml">MODIS_NDVI_8Day.xml</a>                 2024-01-02  20K
+<a href="GPW_Population_Density_2020.xml">GPW_Population_Density_2020.xml</a> 2024-01-02 4.0K
+<a href="VIIRS_Night_Lights.xml">VIIRS_Night_Lights.xml</a>           2024-01-02  6.0K
+<a href="notes.txt">notes.txt</a>
+</pre></body></html>`;
+
+test('a directory index yields every xml filename and nothing else', () => {
+  const files = parseDirectoryIndex(INDEX_HTML);
+  assert.equal(files.length, 8);
+  assert.ok(files.includes('MODIS_Land_Surface_Temp_Day.xml'));
+  assert.ok(!files.some((f) => f.endsWith('.txt')), 'non-xml links are ignored');
+  assert.ok(!files.includes('../'), 'the parent link is ignored');
+});
+
+test('index parsing survives quoting, paths and empty input', () => {
+  assert.deepEqual(parseDirectoryIndex(`<a href='/colormaps/v1.3/A_B.xml'>x</a>`), ['A_B.xml']);
+  assert.deepEqual(parseDirectoryIndex('<a HREF="C.xml">c</a>'), ['C.xml'], 'attribute case');
+  assert.deepEqual(parseDirectoryIndex('<a href="A.xml">1</a><a href="A.xml">2</a>'), ['A.xml'], 'deduplicated');
+  assert.deepEqual(parseDirectoryIndex(''), []);
+  assert.deepEqual(parseDirectoryIndex(null), []);
+});
+
+test('a layer is matched to the palette its product publishes', () => {
+  const files = parseDirectoryIndex(INDEX_HTML);
+  assert.equal(bestColorMapMatch('MODIS_Terra_Land_Surface_Temp_Day', files), 'MODIS_Land_Surface_Temp_Day.xml');
+  assert.equal(bestColorMapMatch('MODIS_Aqua_Land_Surface_Temp_Day', files), 'MODIS_Land_Surface_Temp_Day.xml');
+  assert.equal(bestColorMapMatch('MODIS_Terra_NDVI_8Day', files), 'MODIS_NDVI_8Day.xml');
+  assert.equal(bestColorMapMatch('GPW_Population_Density_2020', files), 'GPW_Population_Density_2020.xml');
+});
+
+test('the most specific candidate wins over a shorter prefix', () => {
+  // MODIS_Land_Surface_Temp.xml is also a valid subset; the day-specific
+  // palette is the correct answer and must not be beaten by the shorter name.
+  const files = parseDirectoryIndex(INDEX_HTML);
+  assert.equal(bestColorMapMatch('MODIS_Terra_Land_Surface_Temp_Day', files), 'MODIS_Land_Surface_Temp_Day.xml');
+});
+
+test('day never matches night, in either direction', () => {
+  const files = parseDirectoryIndex(INDEX_HTML);
+  assert.equal(bestColorMapMatch('MODIS_Terra_Land_Surface_Temp_Night', files), 'MODIS_Land_Surface_Temp_Night.xml');
+  assert.notEqual(bestColorMapMatch('MODIS_Terra_Land_Surface_Temp_Day', files), 'MODIS_Land_Surface_Temp_Night.xml');
+});
+
+test('a different product family is never borrowed from', () => {
+  const files = parseDirectoryIndex(INDEX_HTML);
+  // AIRS and AMSR share tokens with nothing here; VIIRS must not take a MODIS palette.
+  assert.equal(bestColorMapMatch('VIIRS_SNPP_Land_Surface_Temp_Day', files), null,
+    'no VIIRS temperature palette exists, so nothing is returned');
+  assert.equal(bestColorMapMatch('SomeProduct_Unrelated_Layer', files), null);
+});
+
+test('an empty or missing index returns nothing rather than a wrong guess', () => {
+  assert.equal(bestColorMapMatch('MODIS_Terra_NDVI_8Day', []), null);
+  assert.equal(bestColorMapMatch('MODIS_Terra_NDVI_8Day', null), null);
+  assert.equal(bestColorMapMatch('', ['MODIS_NDVI_8Day.xml']), null);
+});
+
+test('matching is case-insensitive about separators but not about identity', () => {
+  const files = ['MODIS-Land-Surface-Temp-Day.xml'];
+  assert.equal(bestColorMapMatch('MODIS_Terra_Land_Surface_Temp_Day', files), 'MODIS-Land-Surface-Temp-Day.xml');
 });

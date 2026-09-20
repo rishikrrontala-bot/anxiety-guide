@@ -106,10 +106,30 @@ export function parseColorMapXml(xml) {
   return maps;
 }
 
-/** Of several palettes in one document, the richest one is the data palette. */
+/**
+ * Of several palettes in one document, the richest one is the data palette.
+ *
+ * Real GIBS documents declare no-data in a *separate* ColorMap block, titled
+ * "No Data", which carries a single transparent entry. Reading only the data
+ * block would leave that colour unmasked, and a fill pixel would then be
+ * nearest-matched to a real temperature. So the mask is the union of every
+ * block's transparent entries, minus any colour the chosen palette genuinely
+ * uses for data — masking is the safe direction, but not at the cost of
+ * discarding valid measurements.
+ */
 export function pickPrimaryColorMap(maps) {
   if (!maps || !maps.length) return null;
-  return maps.reduce((best, m) => (m.entries.length > (best ? best.entries.length : -1) ? m : best), null);
+  const primary = maps.reduce((best, m) => (m.entries.length > (best ? best.entries.length : -1) ? m : best), null);
+  if (!primary) return null;
+
+  const dataKeys = new Set(primary.entries.map((e) => e.key));
+  const masked = new Set();
+  for (const map of maps) {
+    for (const key of map.transparentKeys) {
+      if (!dataKeys.has(key)) masked.add(key);
+    }
+  }
+  return { ...primary, transparentKeys: masked };
 }
 
 /**

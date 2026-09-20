@@ -42,6 +42,15 @@ All vendored into `vendor/`. The site makes **no third-party CDN requests**.
 | [Lenis](https://lenis.darkroom.engineering/) | 1.3.26 | Scroll smoothing | MIT |
 | [Leaflet](https://leafletjs.com/) | 1.9.4 | The analysis map | BSD-2-Clause |
 
+## Test fixtures
+
+`test/fixtures/` contains two unmodified GIBS ColorMap documents copied from NASA's
+[`nasa-gibs/onearth`](https://github.com/nasa-gibs/onearth) repository (Apache-2.0; the
+documents themselves are NASA-produced). They are there so the palette parser is tested
+against the format NASA actually publishes rather than against a fixture written to
+match the parser — which is how the cross-block no-data bug was found. Provenance is
+recorded in `test/fixtures/README.md`.
+
 ## Method references
 
 - Carlson, T.N. & Ripley, D.A. (1997). *On the relation between NDVI, fractional
