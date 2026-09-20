@@ -113,15 +113,25 @@ filename is discovered, not constructed, in this order:
 1. the URL resolved on a previous visit, remembered in `localStorage`;
 2. the layer identifier itself, newest colormap version first — correct for SEDAC;
 3. the identifier with the satellite removed, since Terra and Aqua share palettes;
-4. **the published colormap directory index**, matched by name: a candidate qualifies
+4. **progressively shorter names**, walking the layer name down from most to least
+   specific — satellite off, then trailing qualifiers, then the product token. Tokens
+   are only ever dropped from the end and never substituted, so a `..._Day` layer can
+   never arrive at a `..._Night` palette, and candidates never shrink to a stub like
+   `MODIS_Terra` that names no product. This route asks only for colormap documents,
+   which are known to be reachable cross-origin;
+5. **the published colormap directory index**, matched by name: a candidate qualifies
    only when every one of its tokens appears in the layer's name, and the most specific
    qualifying candidate wins, so `MODIS_Land_Surface_Temp_Day` beats the shorter
    `MODIS_Land_Surface_Temp` and can never be confused with `..._Night`;
-5. failing all of that, the href published for that layer in the WMTS capabilities
+6. failing all of that, the href published for that layer in the WMTS capabilities
    document.
 
-Steps 4 and 5 are self-healing: if NASA renames a palette tomorrow, the app finds the
-new name without a code change.
+Steps 5 and 6 are exact but rely on responses this project cannot guarantee are
+cross-origin readable — the index is an HTML listing, and capabilities is six
+megabytes. Step 4 exists because it uses only requests known to work, so the palette
+is still found when the exact routes are unavailable. Steps 5 and 6 are also
+self-healing: if NASA renames a palette, the app finds the new name without a code
+change.
 
 ### Calibrating, not assuming
 
@@ -208,7 +218,7 @@ cd shade-debt
 npm test          # node --test test/*.test.js
 ```
 
-116 tests, no dependencies, no network access required.
+124 tests, no dependencies, no network access required.
 
 ---
 
@@ -243,7 +253,7 @@ shade-debt/
 │   ├── services.js         place search and reverse lookup
 │   └── exporters.js        GeoJSON, CSV, letter                         (pure)
 └── test/
-    ├── *.test.js           116 tests over the analytical core
+    ├── *.test.js           124 tests over the analytical core
     └── globe-harness.html  mounts the globe against a synthetic texture,
                             so the WebGL path is verifiable without a network
 ```

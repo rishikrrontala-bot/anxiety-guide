@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildTileUrl, tileUrl, colorMapUrls, levelOf, MATRIX_SETS, WMTS_3857,
   extractColorMapHref, platformAgnostic, capabilitiesUrl,
-  parseDirectoryIndex, bestColorMapMatch,
+  parseDirectoryIndex, bestColorMapMatch, colorMapNameCandidates,
 } from '../js/gibs.js';
 
 test('a time-varying layer gets a TIME segment', () => {
@@ -228,4 +228,65 @@ test('an empty or missing index returns nothing rather than a wrong guess', () =
 test('matching is case-insensitive about separators but not about identity', () => {
   const files = ['MODIS-Land-Surface-Temp-Day.xml'];
   assert.equal(bestColorMapMatch('MODIS_Terra_Land_Surface_Temp_Day', files), 'MODIS-Land-Surface-Temp-Day.xml');
+});
+
+/* ---------------------------------------------------------------------------
+ * Progressive name candidates.
+ *
+ * The directory index is exact but is an HTML listing, and a static listing
+ * need not carry CORS headers even where the XML files beside it do. These
+ * candidates ask only for colormap documents, which are known to be reachable
+ * cross-origin, so the palette is still found when the index is not readable.
+ * ------------------------------------------------------------------------ */
+
+test('the exact layer name is always tried first', () => {
+  assert.equal(colorMapNameCandidates('GPW_Population_Density_2020')[0], 'GPW_Population_Density_2020');
+  assert.equal(colorMapNameCandidates('MODIS_Terra_NDVI_8Day')[0], 'MODIS_Terra_NDVI_8Day');
+});
+
+test('the satellite-stripped name is tried second, being the likeliest answer', () => {
+  assert.equal(colorMapNameCandidates('MODIS_Terra_Land_Surface_Temp_Day')[1], 'MODIS_Land_Surface_Temp_Day');
+  assert.equal(colorMapNameCandidates('MODIS_Terra_NDVI_8Day')[1], 'MODIS_NDVI_8Day');
+  assert.equal(colorMapNameCandidates('MODIS_Aqua_Land_Surface_Temp_Night')[1], 'MODIS_Land_Surface_Temp_Night');
+});
+
+test('a day layer can never reach a night palette, and vice versa', () => {
+  // Tokens are only ever dropped from the end, never substituted.
+  for (const name of colorMapNameCandidates('MODIS_Terra_Land_Surface_Temp_Day')) {
+    assert.ok(!/night/i.test(name), `${name} must not appear for a Day layer`);
+  }
+  for (const name of colorMapNameCandidates('MODIS_Terra_Land_Surface_Temp_Night')) {
+    assert.ok(!/_Day\b/i.test(name), `${name} must not appear for a Night layer`);
+  }
+});
+
+test('candidates never shrink to a meaningless stub', () => {
+  // "MODIS_Terra" names no product and could collide with anything.
+  for (const name of colorMapNameCandidates('MODIS_Terra_Land_Surface_Temp_Day')) {
+    assert.ok(name.split('_').length >= 3, `${name} is too short to identify a product`);
+  }
+});
+
+test('the candidate list is bounded and free of duplicates', () => {
+  const long = colorMapNameCandidates('VIIRS_SNPP_DayNightBand_At_Sensor_Radiance');
+  assert.ok(long.length <= 8, `expected a bounded list, got ${long.length}`);
+  assert.equal(new Set(long).size, long.length, 'no candidate is requested twice');
+});
+
+test('a layer with nothing to strip still yields sensible candidates', () => {
+  const c = colorMapNameCandidates('GPW_Population_Density_2020');
+  assert.equal(c[0], 'GPW_Population_Density_2020');
+  assert.ok(c.every((n) => n.split('_').length >= 3));
+  assert.equal(new Set(c).size, c.length);
+});
+
+test('empty and malformed layer names yield nothing rather than junk', () => {
+  assert.deepEqual(colorMapNameCandidates(''), []);
+  assert.deepEqual(colorMapNameCandidates(null), []);
+  assert.deepEqual(colorMapNameCandidates('___'), []);
+});
+
+test('a two-token layer is not discarded by the minimum length rule', () => {
+  const c = colorMapNameCandidates('Some_Layer');
+  assert.ok(c.includes('Some_Layer'), 'the exact name must survive');
 });
